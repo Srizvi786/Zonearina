@@ -110,10 +110,11 @@ func _box(parent: Node, size: Vector3, pos: Vector3, mat: Material, collide := t
 	return st
 
 
-func _mat(c: Color, rough := 0.9) -> StandardMaterial3D:
+func _mat(c: Color, rough := 0.9, metal := 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = c
 	m.roughness = rough
+	m.metallic = metal
 	return m
 
 
