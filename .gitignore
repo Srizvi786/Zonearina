@@ -1,0 +1,20 @@
+# Godot
+.godot/
+*.import
+export_credentials.cfg
+
+# Build
+build/
+*.apk
+*.aab
+*.keystore
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp

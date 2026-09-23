@@ -1,0 +1,92 @@
+name: Build ZoneRoyale APK
+
+# Push karo -> free GitHub Actions pe APK ban jayega
+on:
+  push:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: 4.3-stable
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v4
+
+      - name: JDK 17 setup
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Godot system libs
+        run: sudo apt-get update && sudo apt-get install -y libx11-6 libxcursor1 libxrandr2 libxinerama1 libxi6 libgl1 libasound2t64 || true
+
+      - name: Cache Godot templates
+        id: tmpl-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates/4.3.stable
+          key: godot-templates-4.3-stable-zoneroyle
+
+      - name: Download Godot + templates
+        run: |
+          mkdir -p ~/godot ~/tmpl
+          if [ ! -f ~/godot/Godot_v4.3-stable_linux.x86_64 ]; then
+            curl -L -o ~/godot/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v4.3-stable_linux.x86_64.zip"
+            unzip -q -o ~/godot/godot.zip -d ~/godot
+          fi
+          chmod +x ~/godot/Godot_v4.3-stable_linux.x86_64
+          ~/godot/Godot_v4.3-stable_linux.x86_64 --version
+
+          if [ ! -f ~/.local/share/godot/export_templates/4.3.stable/android_release.apk ] && [ ! -f ~/.local/share/godot/export_templates/4.3.stable/templates/android_release.apk ]; then
+            curl -L -o ~/tmpl/tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v4.3-stable_export_templates.tpz"
+            mkdir -p ~/.local/share/godot/export_templates/4.3.stable
+            unzip -q -o ~/tmpl/tpz -d ~/.local/share/godot/export_templates/4.3.stable
+            if [ -d ~/.local/share/godot/export_templates/4.3.stable/templates ]; then
+              mv ~/.local/share/godot/export_templates/4.3.stable/templates/* ~/.local/share/godot/export_templates/4.3.stable/
+              rmdir ~/.local/share/godot/export_templates/4.3.stable/templates
+            fi
+          fi
+          ls ~/.local/share/godot/export_templates/4.3.stable | head
+
+      - name: Debug keystore + absolute path
+        run: |
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore -alias androiddebugkey \
+              -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          KS="$GITHUB_WORKSPACE/debug.keystore"
+          sed -i "s|^keystore/debug=.*|keystore/debug=\"$KS\"|" export_presets.cfg
+          grep "^keystore/debug" export_presets.cfg
+
+      - name: Import project (script errors fail build)
+        run: |
+          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --import 2>&1 | tee import.log || true
+          if grep -qE "SCRIPT ERROR|Parse Error" import.log; then
+            echo "::error::GDScript errors found!"
+            exit 1
+          fi
+
+      - name: Export Android APK
+        run: |
+          mkdir -p build
+          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --export-debug "Android" build/ZoneRoyale.apk
+          ls -lh build/
+          test -s build/ZoneRoyale.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZoneRoyale-apk
+          path: build/ZoneRoyale.apk
+          retention-days: 90

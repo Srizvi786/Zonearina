@@ -1,0 +1,95 @@
+name: Release ZoneRoyale APK
+
+# Actions > Release ZoneRoyale APK > Run workflow (manual)
+on:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: 4.3-stable
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v4
+
+      - name: JDK 17 setup
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Godot system libs
+        run: sudo apt-get update && sudo apt-get install -y libx11-6 libxcursor1 libxrandr2 libxinerama1 libxi6 libgl1 libasound2t64 || true
+
+      - name: Cache Godot templates
+        id: tmpl-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates/4.3.stable
+          key: godot-templates-4.3-stable-zoneroyle
+
+      - name: Download Godot + templates
+        run: |
+          mkdir -p ~/godot ~/tmpl
+          if [ ! -f ~/godot/Godot_v4.3-stable_linux.x86_64 ]; then
+            curl -L -o ~/godot/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v4.3-stable_linux.x86_64.zip"
+            unzip -q -o ~/godot/godot.zip -d ~/godot
+          fi
+          chmod +x ~/godot/Godot_v4.3-stable_linux.x86_64
+          if [ ! -f ~/.local/share/godot/export_templates/4.3.stable/android_release.apk ] && [ ! -f ~/.local/share/godot/export_templates/4.3.stable/templates/android_release.apk ]; then
+            curl -L -o ~/tmpl/tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v4.3-stable_export_templates.tpz"
+            mkdir -p ~/.local/share/godot/export_templates/4.3.stable
+            unzip -q -o ~/tmpl/tpz -d ~/.local/share/godot/export_templates/4.3.stable
+            if [ -d ~/.local/share/godot/export_templates/4.3.stable/templates ]; then
+              mv ~/.local/share/godot/export_templates/4.3.stable/templates/* ~/.local/share/godot/export_templates/4.3.stable/
+              rmdir ~/.local/share/godot/export_templates/4.3.stable/templates
+            fi
+          fi
+
+      - name: Release keystore
+        run: |
+          if [ -n "${{ secrets.ANDROID_RELEASE_KEYSTORE }}" ]; then
+            echo "${{ secrets.ANDROID_RELEASE_KEYSTORE }}" | base64 -d > release.keystore
+            echo "Using secret keystore"
+          else
+            keytool -genkey -keystore release.keystore -alias zoneroyle \
+              -storepass ZoneRoyale2026 -keypass ZoneRoyale2026 -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=ZoneRoyale, O=Zone, C=IN"
+            echo "WARNING: using fresh keystore (test only)"
+          fi
+          KS="$GITHUB_WORKSPACE/release.keystore"
+          sed -i "s|^keystore/debug=.*|keystore/debug=\"$KS\"|" export_presets.cfg
+          sed -i "s|^keystore/debug_user=.*|keystore/debug_user=\"zoneroyle\"|" export_presets.cfg
+          sed -i "s|^keystore/debug_password=.*|keystore/debug_password=\"ZoneRoyale2026\"|" export_presets.cfg
+          sed -i "s|^keystore/release=.*|keystore/release=\"$KS\"|" export_presets.cfg
+          sed -i "s|^keystore/release_user=.*|keystore/release_user=\"zoneroyle\"|" export_presets.cfg
+          sed -i "s|^keystore/release_password=.*|keystore/release_password=\"ZoneRoyale2026\"|" export_presets.cfg
+
+      - name: Export signed release APK
+        run: |
+          mkdir -p build
+          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --import
+          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --export-release "Android" build/ZoneRoyale.apk
+          ls -lh build/
+          test -s build/ZoneRoyale.apk
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: ZoneRoyale v${{ github.run_number }}
+          files: build/ZoneRoyale.apk
+          generate_release_notes: true
+          body: |
+            ZoneRoyale Android APK - install and play.
+            Package: com.zoneroyle.game
