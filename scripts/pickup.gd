@@ -126,6 +126,8 @@ func _apply(p: Fighter) -> bool:
 			p.ammo_mag = int(Fighter.GUNS[kind]["mag"]) + (10 if p.ext_mag else 0)
 			p.ammo_reserve = 90
 			p.reloading = 0.0
+			if p.has_method("refresh_weapon_visual"):
+				p.refresh_weapon_visual()
 			return true
 		"ammo":
 			p.ammo_reserve += 60

@@ -77,6 +77,22 @@ jobs:
             exit 1
           fi
 
+      - name: Headless smoke test
+        run: |
+          set +e
+          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless -s res://test/smoke_test.gd 2>&1 | tee smoke.log
+          CODE=${PIPESTATUS[0]}
+          set -e
+          if grep -qE "SCRIPT ERROR|Parse Error" smoke.log; then
+            echo "::error::Script errors in smoke test"
+            exit 1
+          fi
+          if ! grep -q "SMOKE_TEST_PASS" smoke.log; then
+            echo "::error::Smoke test failed"
+            exit 1
+          fi
+          echo "Smoke test OK"
+
       - name: Export Android APK
         run: |
           mkdir -p build

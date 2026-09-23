@@ -1,34 +1,35 @@
 class_name Fighter
 extends CharacterBody3D
-## Human fighter: player + bots share this. Camera-aim shooting.
+## PUBG-style soldier: tactical gear, reliable shooting, camera aim.
 
 signal died(fighter: Fighter)
 
-const SPEED := 7.0
-const BOT_SPEED := 5.6
-const GRAVITY := 24.0
+const SPEED := 6.5
+const BOT_SPEED := 5.4
+const GRAVITY := 22.0
 const MAX_HP := 100.0
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 
 const GUNS := {
-	"rifle": {"dmg": 12.0, "interval": 0.16, "mag": 30, "auto": true, "spread": 0.02, "sound": "rifle"},
-	"smg": {"dmg": 8.0, "interval": 0.09, "mag": 40, "auto": true, "spread": 0.05, "sound": "smg"},
-	"sniper": {"dmg": 45.0, "interval": 1.1, "mag": 5, "auto": false, "spread": 0.0, "sound": "sniper"},
+	"rifle": {"dmg": 14.0, "interval": 0.14, "mag": 30, "auto": true, "spread": 0.018, "sound": "rifle", "range": 120.0},
+	"smg": {"dmg": 9.0, "interval": 0.085, "mag": 40, "auto": true, "spread": 0.045, "sound": "smg", "range": 70.0},
+	"sniper": {"dmg": 55.0, "interval": 1.15, "mag": 5, "auto": false, "spread": 0.0, "sound": "sniper", "range": 200.0},
 }
 
 var is_player := false
 var fname := "Bot"
-var personality := 0  # 0 rusher, 1 camper, 2 looter
+var personality := 0
 var hp := MAX_HP
 var alive := true
 var kills := 0
 var move_input := Vector2.ZERO
 var aim_yaw := 0.0
-var aim_pitch := -0.08
+var aim_pitch := -0.10
 var fire_held := false
 var fire_cd := 0.0
-var body_color := Color(0.2, 0.6, 1.0)
-var skin_color := Color(0.85, 0.65, 0.5)
+var body_color := Color(0.28, 0.32, 0.24)
+var skin_color := Color(0.82, 0.62, 0.48)
+var camo_accent := Color(0.22, 0.26, 0.18)
 
 var gun := "rifle"
 var ammo_mag := 30
@@ -51,6 +52,7 @@ var crouching := false
 var zoom_idx := 0
 var last_hit_by = null
 
+# Visuals
 var visual: Node3D
 var torso: MeshInstance3D
 var head_m: MeshInstance3D
@@ -64,10 +66,12 @@ var flash_t := 0.0
 var helmet_m: MeshInstance3D
 var vest_m: MeshInstance3D
 var body_mat: StandardMaterial3D
+var gun_root: Node3D
 var walk_phase := 0.0
 var col: CollisionShape3D
 var cam_pivot: Node3D
 var cam: Camera3D
+var name_label: Label3D
 
 var think_cd := 0.0
 var wander_cd := 0.0
@@ -84,16 +88,18 @@ func mag_size() -> int:
 
 func _ready() -> void:
 	add_to_group("fighters")
-	floor_snap_length = 0.45
-	_build_humanoid()
+	floor_snap_length = 0.5
+	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
+	_build_soldier()
 	if is_player:
 		_setup_camera()
 
 
-func _mat(c: Color) -> StandardMaterial3D:
+func _mat(c: Color, rough := 0.85, metal := 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = c
-	m.roughness = 0.8
+	m.roughness = rough
+	m.metallic = metal
 	return m
 
 
@@ -108,106 +114,232 @@ func _box(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> MeshIns
 	return mi
 
 
-func _build_humanoid() -> void:
+func _cyl(parent: Node3D, r_top: float, r_bot: float, h: float, pos: Vector3, mat: Material, rot := Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var c := CylinderMesh.new()
+	c.top_radius = r_top
+	c.bottom_radius = r_bot
+	c.height = h
+	c.radial_segments = 12
+	mi.mesh = c
+	mi.material_override = mat
+	mi.position = pos
+	mi.rotation = rot
+	parent.add_child(mi)
+	return mi
+
+
+func _sphere(parent: Node3D, r: float, h: float, pos: Vector3, mat: Material) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var s := SphereMesh.new()
+	s.radius = r
+	s.height = h
+	s.radial_segments = 16
+	s.rings = 8
+	mi.mesh = s
+	mi.material_override = mat
+	mi.position = pos
+	parent.add_child(mi)
+	return mi
+
+
+## PUBG-inspired operator: helmet, plate carrier, camo fatigues, boots, gloves.
+func _build_soldier() -> void:
 	visual = Node3D.new()
 	add_child(visual)
-	var jacket := _mat(body_color)
-	body_mat = jacket
-	var pants := _mat(body_color.darkened(0.35))
-	var skin := _mat(skin_color)
-	var dark := _mat(Color(0.08, 0.08, 0.1))
-	var bootm := _mat(Color(0.15, 0.12, 0.1))
 
-	torso = _box(visual, Vector3(0.55, 0.7, 0.32), Vector3(0, 1.2, 0), jacket)
-	vest_m = _box(visual, Vector3(0.6, 0.5, 0.37), Vector3(0, 1.22, 0), _mat(Color(0.2, 0.22, 0.18)))
-	vest_m.visible = false
+	var camo := _mat(body_color, 0.92)
+	var camo_dark := _mat(camo_accent, 0.9)
+	var skin := _mat(skin_color, 0.7)
+	var vest_c := _mat(Color(0.18, 0.2, 0.16), 0.75)
+	var gear := _mat(Color(0.12, 0.13, 0.11), 0.7)
+	var boot := _mat(Color(0.1, 0.09, 0.08), 0.65)
+	var glove := _mat(Color(0.15, 0.14, 0.12), 0.8)
+	var metal := _mat(Color(0.18, 0.18, 0.2), 0.35, 0.7)
+	var gun_c := _mat(Color(0.1, 0.1, 0.11), 0.45, 0.55)
+	var wood := _mat(Color(0.28, 0.18, 0.1), 0.7)
+	body_mat = camo
 
-	head_m = MeshInstance3D.new()
-	var hs := SphereMesh.new()
-	hs.radius = 0.24
-	hs.height = 0.48
-	head_m.mesh = hs
-	head_m.material_override = skin
-	head_m.position = Vector3(0, 1.78, 0)
-	visual.add_child(head_m)
-	var eye_m := _mat(Color(0.05, 0.05, 0.06))
-	_box(visual, Vector3(0.06, 0.06, 0.03), Vector3(-0.09, 1.8, -0.22), eye_m)
-	_box(visual, Vector3(0.06, 0.06, 0.03), Vector3(0.09, 1.8, -0.22), eye_m)
+	# --- Torso: fatigues + plate carrier ---
+	torso = _box(visual, Vector3(0.52, 0.68, 0.30), Vector3(0, 1.18, 0), camo)
+	# Plate carrier over torso
+	vest_m = _box(visual, Vector3(0.58, 0.52, 0.36), Vector3(0, 1.22, 0), vest_c)
+	vest_m.visible = vest
+	# Mag pouches (front)
+	if vest:
+		for i in 3:
+			_box(visual, Vector3(0.12, 0.14, 0.08), Vector3(-0.16 + i * 0.16, 1.18, 0.2), gear)
+	# Radio on shoulder
+	_box(visual, Vector3(0.08, 0.16, 0.06), Vector3(0.22, 1.38, -0.05), gear)
+	# Belt
+	_box(visual, Vector3(0.5, 0.08, 0.32), Vector3(0, 0.86, 0), gear)
 
+	# --- Head: skull + face + helmet ---
+	head_m = _sphere(visual, 0.22, 0.44, Vector3(0, 1.72, 0), skin)
+	# Nose / jaw hint
+	_box(visual, Vector3(0.1, 0.08, 0.1), Vector3(0, 1.68, -0.2), skin)
+	# Eyes
+	var eye := _mat(Color(0.06, 0.06, 0.07), 0.4)
+	_box(visual, Vector3(0.05, 0.04, 0.03), Vector3(-0.08, 1.74, -0.2), eye)
+	_box(visual, Vector3(0.05, 0.04, 0.03), Vector3(0.08, 1.74, -0.2), eye)
+	# Balaclava lower face
+	_box(visual, Vector3(0.28, 0.14, 0.24), Vector3(0, 1.62, -0.04), _mat(Color(0.14, 0.14, 0.13), 0.9))
+
+	# Helmet (Level-3 style dome + brim + NVG mount)
 	helmet_m = MeshInstance3D.new()
-	var hm := SphereMesh.new()
-	hm.radius = 0.29
-	hm.height = 0.4
-	helmet_m.mesh = hm
-	helmet_m.material_override = _mat(Color(0.25, 0.3, 0.22))
-	helmet_m.position = Vector3(0, 1.86, 0)
-	helmet_m.visible = false
+	var hd := SphereMesh.new()
+	hd.radius = 0.28
+	hd.height = 0.36
+	hd.radial_segments = 16
+	hd.rings = 8
+	helmet_m.mesh = hd
+	helmet_m.material_override = _mat(Color(0.2, 0.24, 0.16), 0.7)
+	helmet_m.position = Vector3(0, 1.80, 0.02)
+	helmet_m.scale = Vector3(1.0, 0.85, 1.1)
+	helmet_m.visible = helmet
 	visual.add_child(helmet_m)
+	# Helmet rails
+	_box(visual, Vector3(0.5, 0.04, 0.06), Vector3(0, 1.86, -0.1), gear)
+	# Ear pro
+	_sphere(visual, 0.07, 0.12, Vector3(-0.22, 1.72, 0), gear)
+	_sphere(visual, 0.07, 0.12, Vector3(0.22, 1.72, 0), gear)
 
+	# --- Arms: shoulder pivot ---
 	for side in [-1.0, 1.0]:
 		var sh := Node3D.new()
-		sh.position = Vector3(0.36 * side, 1.48, 0)
+		sh.position = Vector3(0.34 * side, 1.42, 0)
 		visual.add_child(sh)
-		_box(sh, Vector3(0.16, 0.52, 0.16), Vector3(0, -0.26, 0), jacket)
-		_box(sh, Vector3(0.14, 0.14, 0.14), Vector3(0, -0.55, -0.05), skin)
+		# Upper arm (camo sleeve)
+		_box(sh, Vector3(0.16, 0.42, 0.16), Vector3(0, -0.22, 0), camo)
+		# Elbow pad
+		_box(sh, Vector3(0.17, 0.1, 0.17), Vector3(0, -0.44, 0), gear)
+		# Forearm
+		_box(sh, Vector3(0.14, 0.36, 0.14), Vector3(0, -0.66, 0), camo_dark)
+		# Glove hand
+		_box(sh, Vector3(0.13, 0.12, 0.16), Vector3(0, -0.88, -0.02), glove)
 		if side < 0.0:
 			arm_l = sh
 		else:
 			arm_r = sh
 
+	# --- Legs ---
 	for side in [-1.0, 1.0]:
 		var hip := Node3D.new()
-		hip.position = Vector3(0.15 * side, 0.9, 0)
+		hip.position = Vector3(0.14 * side, 0.86, 0)
 		visual.add_child(hip)
-		_box(hip, Vector3(0.2, 0.48, 0.2), Vector3(0, -0.24, 0), pants)
-		_box(hip, Vector3(0.22, 0.16, 0.3), Vector3(0, -0.55, -0.04), bootm)
+		_box(hip, Vector3(0.2, 0.4, 0.2), Vector3(0, -0.22, 0), camo)
+		# Knee pad
+		_box(hip, Vector3(0.18, 0.1, 0.2), Vector3(0, -0.44, -0.02), gear)
+		_box(hip, Vector3(0.18, 0.36, 0.18), Vector3(0, -0.68, 0), camo_dark)
+		# Combat boot
+		_box(hip, Vector3(0.2, 0.14, 0.3), Vector3(0, -0.92, -0.04), boot)
+		_box(hip, Vector3(0.2, 0.06, 0.32), Vector3(0, -0.98, -0.05), _mat(Color(0.06, 0.06, 0.06), 0.5))
 		if side < 0.0:
 			leg_l = hip
 		else:
 			leg_r = hip
 
-	_box(visual, Vector3(0.1, 0.14, 0.95), Vector3(0.22, 1.28, -0.35), dark)
-	_box(visual, Vector3(0.08, 0.22, 0.12), Vector3(0.22, 1.12, -0.25), dark)
-	muzzle = Marker3D.new()
-	muzzle.position = Vector3(0.22, 1.3, -0.85)
-	visual.add_child(muzzle)
+	# --- Weapon in hands (visible rifle) ---
+	gun_root = Node3D.new()
+	gun_root.position = Vector3(0.2, 1.22, -0.2)
+	visual.add_child(gun_root)
+	_build_weapon_mesh(gun_root)
 
+	muzzle = Marker3D.new()
+	muzzle.position = Vector3(0.0, 0.05, -0.95)
+	gun_root.add_child(muzzle)
+
+	# Muzzle flash
 	flash_m = MeshInstance3D.new()
 	var fs := SphereMesh.new()
-	fs.radius = 0.22
-	fs.height = 0.44
+	fs.radius = 0.18
+	fs.height = 0.35
 	flash_m.mesh = fs
 	var fm := StandardMaterial3D.new()
-	fm.albedo_color = Color(1, 0.8, 0.3)
+	fm.albedo_color = Color(1, 0.85, 0.35)
 	fm.emission_enabled = true
 	fm.emission = Color(1, 0.7, 0.2)
-	fm.emission_energy_multiplier = 4.0
+	fm.emission_energy_multiplier = 6.0
 	fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	flash_m.material_override = fm
-	flash_m.position = muzzle.position
+	flash_m.position = Vector3(0, 0.05, -1.0)
 	flash_m.visible = false
-	visual.add_child(flash_m)
+	gun_root.add_child(flash_m)
 
+	# Collision capsule (human height ~1.75)
 	col = CollisionShape3D.new()
 	var shape := CapsuleShape3D.new()
-	shape.radius = 0.4
-	shape.height = 1.7
+	shape.radius = 0.38
+	shape.height = 1.75
 	col.shape = shape
-	col.position = Vector3(0, 0.95, 0)
+	col.position = Vector3(0, 0.9, 0)
 	add_child(col)
+
+	# Floating name for enemies
+	if not is_player:
+		name_label = Label3D.new()
+		name_label.text = fname
+		name_label.font_size = 40
+		name_label.pixel_size = 0.006
+		name_label.outline_size = 6
+		name_label.modulate = Color(1, 0.4, 0.35)
+		name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		name_label.position = Vector3(0, 2.25, 0)
+		visual.add_child(name_label)
+
+
+func _build_weapon_mesh(root: Node3D) -> void:
+	var gun_c := _mat(Color(0.1, 0.1, 0.11), 0.45, 0.55)
+	var metal := _mat(Color(0.2, 0.2, 0.22), 0.3, 0.75)
+	var wood := _mat(Color(0.3, 0.18, 0.1), 0.7)
+	# Clear old
+	for c in root.get_children():
+		if c is MeshInstance3D or c is Marker3D:
+			if c != muzzle and c != flash_m:
+				c.queue_free()
+	match gun:
+		"sniper":
+			_box(root, Vector3(0.07, 0.1, 1.3), Vector3(0, 0.05, -0.35), gun_c)
+			_box(root, Vector3(0.06, 0.08, 0.35), Vector3(0, 0.05, 0.35), wood)
+			_cyl(root, 0.025, 0.025, 0.55, Vector3(0, 0.06, -1.0), metal, Vector3(PI / 2, 0, 0))
+			# Scope
+			_cyl(root, 0.04, 0.04, 0.28, Vector3(0, 0.16, -0.15), metal, Vector3(PI / 2, 0, 0))
+			_box(root, Vector3(0.04, 0.08, 0.08), Vector3(0, 0.1, -0.15), metal)
+		"smg":
+			_box(root, Vector3(0.08, 0.12, 0.7), Vector3(0, 0.05, -0.2), gun_c)
+			_box(root, Vector3(0.07, 0.1, 0.2), Vector3(0, 0.02, 0.25), gun_c)
+			_cyl(root, 0.02, 0.02, 0.25, Vector3(0, 0.06, -0.55), metal, Vector3(PI / 2, 0, 0))
+			_box(root, Vector3(0.05, 0.14, 0.08), Vector3(0, -0.06, -0.05), metal)
+		_:
+			# Assault rifle (AK/M4 hybrid)
+			_box(root, Vector3(0.08, 0.11, 0.85), Vector3(0, 0.05, -0.25), gun_c)
+			_box(root, Vector3(0.07, 0.1, 0.28), Vector3(0, 0.04, 0.3), wood)
+			_cyl(root, 0.022, 0.022, 0.4, Vector3(0, 0.06, -0.75), metal, Vector3(PI / 2, 0, 0))
+			# Magazine (curved hint)
+			_box(root, Vector3(0.05, 0.18, 0.08), Vector3(0, -0.08, -0.1), metal)
+			# Front sight
+			_box(root, Vector3(0.03, 0.08, 0.03), Vector3(0, 0.14, -0.55), metal)
+			# Carry handle rear sight
+			_box(root, Vector3(0.04, 0.05, 0.1), Vector3(0, 0.13, 0.05), metal)
+
+
+func refresh_weapon_visual() -> void:
+	if gun_root != null:
+		_build_weapon_mesh(gun_root)
 
 
 func _setup_camera() -> void:
 	cam_pivot = Node3D.new()
-	cam_pivot.position = Vector3(0, 1.7, 0)
+	cam_pivot.position = Vector3(0, 1.55, 0)
 	add_child(cam_pivot)
 	var spring := SpringArm3D.new()
-	spring.spring_length = 5.0
-	spring.margin = 0.3
+	spring.spring_length = 4.5
+	spring.margin = 0.35
+	spring.collision_mask = 1
 	cam_pivot.add_child(spring)
 	cam = Camera3D.new()
-	cam.fov = 70.0
-	cam.far = 160.0
+	cam.fov = 75.0
+	cam.far = 180.0
 	cam.current = true
 	spring.add_child(cam)
 	_apply_aim()
@@ -217,8 +349,9 @@ func _apply_aim() -> void:
 	rotation.y = aim_yaw
 	if cam_pivot != null:
 		cam_pivot.rotation.x = aim_pitch
-		var zooms := [70.0, 45.0, 28.0]
-		cam.fov = zooms[clampi(zoom_idx, 0, 2)]
+		var zooms := [75.0, 50.0, 30.0]
+		if cam != null:
+			cam.fov = zooms[clampi(zoom_idx, 0, 2)]
 
 
 func set_crouch(v: bool) -> void:
@@ -227,12 +360,12 @@ func set_crouch(v: bool) -> void:
 	crouching = v
 	if crouching:
 		visual.scale.y = 0.78
-		(col.shape as CapsuleShape3D).height = 1.25
-		col.position.y = 0.72
+		(col.shape as CapsuleShape3D).height = 1.3
+		col.position.y = 0.7
 	else:
 		visual.scale.y = 1.0
-		(col.shape as CapsuleShape3D).height = 1.7
-		col.position.y = 0.95
+		(col.shape as CapsuleShape3D).height = 1.75
+		col.position.y = 0.9
 
 
 func _physics_process(delta: float) -> void:
@@ -277,35 +410,43 @@ func _physics_process(delta: float) -> void:
 
 
 func _animate(delta: float, speed01: float) -> void:
-	var aiming := fire_held or zoom_idx > 0
+	var aiming := fire_held or zoom_idx > 0 or not is_player
 	if speed01 > 0.3 and is_on_floor():
-		walk_phase += delta * (6.0 + speed01 * 7.0)
-		var s := sin(walk_phase) * (0.55 if not aiming else 0.25)
-		arm_l.rotation.x = s
-		arm_r.rotation.x = -s
+		walk_phase += delta * (5.5 + speed01 * 6.5)
+		var s := sin(walk_phase) * (0.5 if not aiming else 0.22)
+		arm_l.rotation.x = s * 0.7 - (0.9 if aiming else 0.0)
+		arm_r.rotation.x = -s * 0.3 - (1.1 if aiming else 0.0)
 		leg_l.rotation.x = -s
 		leg_r.rotation.x = s
-		visual.position.y = abs(sin(walk_phase)) * 0.05
+		visual.position.y = abs(sin(walk_phase)) * 0.04
 	elif aiming:
-		arm_l.rotation.x = -1.15
-		arm_r.rotation.x = -1.15
-		leg_l.rotation.x = 0.0
-		leg_r.rotation.x = 0.0
+		# Arms forward holding weapon
+		arm_l.rotation.x = -1.2
+		arm_l.rotation.z = 0.25
+		arm_r.rotation.x = -1.35
+		arm_r.rotation.z = -0.15
+		leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.0, delta * 8.0)
+		leg_r.rotation.x = lerpf(leg_r.rotation.x, 0.0, delta * 8.0)
 	else:
 		arm_l.rotation.x = lerpf(arm_l.rotation.x, 0.0, delta * 8.0)
+		arm_l.rotation.z = lerpf(arm_l.rotation.z, 0.0, delta * 8.0)
 		arm_r.rotation.x = lerpf(arm_r.rotation.x, 0.0, delta * 8.0)
+		arm_r.rotation.z = lerpf(arm_r.rotation.z, 0.0, delta * 8.0)
 		leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.0, delta * 8.0)
 		leg_r.rotation.x = lerpf(leg_r.rotation.x, 0.0, delta * 8.0)
 	if crouching:
-		leg_l.rotation.x = 0.9
-		leg_r.rotation.x = -0.7
-		torso.rotation.x = 0.25
+		leg_l.rotation.x = 0.85
+		leg_r.rotation.x = -0.65
+		torso.rotation.x = 0.22
 	else:
 		torso.rotation.x = 0.0
 	if flash_t > 0.0:
 		flash_t -= delta
 		if flash_t <= 0.0:
 			flash_m.visible = false
+	# Weapon follows torso pitch slightly
+	if gun_root != null:
+		gun_root.rotation.x = -aim_pitch * 0.5 + (0.15 if crouching else 0.0)
 
 
 func _player_input(delta: float) -> void:
@@ -317,57 +458,72 @@ func _player_input(delta: float) -> void:
 		try_jump()
 	if Input.is_action_just_pressed("reload"):
 		start_reload()
-	if Input.is_action_pressed("fire"):
+	# Mouse / keyboard fire - always sync
+	if Input.is_action_pressed("fire") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		fire_held = true
+	elif fire_held and not _touch_fire_held:
+		# Only release if not held by touch button
+		if not Input.is_action_pressed("fire"):
+			fire_held = false
+
+
+var _touch_fire_held := false
+
+
+func set_touch_fire(v: bool) -> void:
+	_touch_fire_held = v
+	fire_held = v or Input.is_action_pressed("fire") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 
 
 func release_trigger() -> void:
-	fire_held = false
-	if Input.is_action_pressed("fire") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-		fire_held = true
+	_touch_fire_held = false
+	fire_held = Input.is_action_pressed("fire") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 
 
 func try_jump() -> void:
 	if alive and is_on_floor():
-		velocity.y = 8.5
+		velocity.y = 8.0
 
 
 func _aim_point() -> Vector3:
+	var rng: float = float(GUNS[gun]["range"])
 	if is_player and cam != null:
 		var vp := get_viewport()
 		if vp != null:
 			var center := vp.get_visible_rect().size * 0.5
 			var from := cam.project_ray_origin(center)
 			var rdir: Vector3 = cam.project_ray_normal(center)
+			# Soft aim assist: lock to enemy near crosshair
 			var best: Fighter = null
-			var best_perp := 2.0
+			var best_perp := 2.5
 			for n in get_tree().get_nodes_in_group("fighters"):
 				if n == self:
 					continue
 				var f := n as Fighter
 				if f == null or not f.alive:
 					continue
-				var to_f: Vector3 = (f.global_position + Vector3(0, 1.2, 0)) - from
+				var chest: Vector3 = f.global_position + Vector3(0, 1.15, 0)
+				var to_f: Vector3 = chest - from
 				var t := to_f.dot(rdir)
-				if t < 2.0 or t > 70.0:
+				if t < 2.0 or t > rng:
 					continue
 				var perp: float = (to_f - rdir * t).length()
 				if perp < best_perp:
 					best_perp = perp
 					best = f
-			if best != null:
-				var bp2: Vector3 = best.global_position + Vector3(0, 1.2, 0)
-				var tof: float = from.distance_to(bp2) / 70.0
-				bp2 += best.velocity * tof * 0.85
-				return bp2
-			var to: Vector3 = from + rdir * 120.0
+			if best != null and zoom_idx > 0:
+				var bp: Vector3 = best.global_position + Vector3(0, 1.15, 0)
+				var tof: float = from.distance_to(bp) / 80.0
+				bp += best.velocity * tof * 0.9
+				return bp
+			var to: Vector3 = from + rdir * rng
 			var q := PhysicsRayQueryParameters3D.create(from, to, 1, [get_rid()])
 			var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(q)
 			if not hit.is_empty():
 				return hit["position"]
 			return to
 	var fwd := -global_transform.basis.z
-	return muzzle.global_position + fwd * 60.0
+	return muzzle.global_position + fwd * rng
 
 
 func shoot() -> void:
@@ -380,6 +536,7 @@ func shoot() -> void:
 	fire_cd = float(GUNS[gun]["interval"])
 	var arena := get_tree().current_scene
 	if arena == null or not arena.has_method("get_bullet"):
+		push_warning("shoot: arena missing get_bullet")
 		return
 	var b = arena.get_bullet()
 	if b == null:
@@ -387,19 +544,22 @@ func shoot() -> void:
 	b.global_position = muzzle.global_position
 	var target := _aim_point()
 	var dir: Vector3 = (target - muzzle.global_position).normalized()
-	var spread: float = float(GUNS[gun]["spread"]) * (0.6 if crouching else 1.0)
+	if dir.length() < 0.5:
+		dir = -global_transform.basis.z
+	var spread: float = float(GUNS[gun]["spread"]) * (0.55 if crouching else 1.0)
 	if zoom_idx == 2:
-		spread *= 0.4
+		spread *= 0.35
 	if not is_player:
 		var bm: Dictionary = Settings.bot_mult()
-		spread = 0.05 * float(bm["err"])
+		spread = 0.055 * float(bm["err"])
 		if crouching:
 			spread *= 0.7
 	dir = dir.rotated(Vector3.UP, randf_range(-spread, spread))
-	dir.y += randf_range(-spread * 0.5, spread * 0.5)
-	b.setup(dir.normalized(), _gun_damage(), self)
+	dir = (dir + Vector3(randf_range(-spread, spread) * 0.3, randf_range(-spread, spread) * 0.3, 0)).normalized()
+	b.setup(dir, _gun_damage(), self)
 	flash_m.visible = true
-	flash_t = 0.06
+	flash_t = 0.05
+	flash_m.rotation.z = randf() * TAU
 	Sfx.play(str(GUNS[gun]["sound"]))
 
 
@@ -413,7 +573,7 @@ func _gun_damage() -> float:
 func start_reload() -> void:
 	if reloading > 0.0 or ammo_reserve <= 0 or ammo_mag >= mag_size():
 		return
-	reloading = 2.2
+	reloading = 2.0
 	Sfx.play("reload")
 
 
@@ -454,7 +614,7 @@ func _update_heal(delta: float) -> void:
 			hp = MAX_HP
 		elif heal_kind == "bandage":
 			bandages -= 1
-			hp = minf(MAX_HP, hp + 15.0)
+			hp = minf(MAX_HP, hp + 25.0)
 		elif heal_kind == "drink":
 			drinks -= 1
 			hp = minf(MAX_HP, hp + 40.0)
@@ -482,29 +642,31 @@ func take_damage(amount: float, from = null) -> void:
 	last_hit_by = from
 	var a := amount
 	if helmet and helmet_hp > 0.0:
-		a *= 0.8
+		a *= 0.78
 		helmet_hp -= amount
 		if helmet_hp <= 0.0:
 			helmet = false
 			helmet_m.visible = false
 	if vest and vest_hp > 0.0:
-		a *= 0.75
+		a *= 0.72
 		vest_hp -= amount
 		if vest_hp <= 0.0:
 			vest = false
 			vest_m.visible = false
+			# Remove pouches visual - keep simple
 	hp -= a
 	_flash_hit()
 	cancel_heal_on_damage()
 	if is_player:
 		Sfx.play("hurt")
-		Sfx.buzz(40)
+		Sfx.buzz(50)
 	if hp <= 0.0:
 		hp = 0.0
 		alive = false
+		fire_held = false
 		if from != null and from != self and from is Fighter and (from as Fighter).is_player:
 			(from as Fighter).kills += 1
-			Sfx.buzz(60)
+			Sfx.buzz(70)
 		died.emit(self)
 		_die_fall()
 
@@ -514,9 +676,9 @@ func _die_fall() -> void:
 	col.set_deferred("disabled", true)
 	var tw := create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(visual, "rotation:x", -1.5, 0.5)
-	tw.tween_property(visual, "position:y", 0.3, 0.5)
-	tw.chain().tween_interval(0.8)
+	tw.tween_property(visual, "rotation:x", -1.5, 0.55)
+	tw.tween_property(visual, "position:y", 0.25, 0.55)
+	tw.chain().tween_interval(1.0)
 	tw.tween_callback(queue_free)
 
 
@@ -527,7 +689,7 @@ func start_dance() -> void:
 	fire_held = false
 	var tw := create_tween()
 	tw.set_loops()
-	tw.tween_property(visual, "position:y", 0.35, 0.3)
+	tw.tween_property(visual, "position:y", 0.3, 0.3)
 	tw.tween_property(visual, "position:y", 0.0, 0.3)
 	tw.parallel().tween_property(self, "rotation:y", rotation.y + TAU, 1.2)
 
@@ -542,16 +704,17 @@ func equip_bot_sniper() -> void:
 	vest = true
 	vest_hp = 50.0
 	vest_m.visible = true
+	refresh_weapon_visual()
 
 
 func _flash_hit() -> void:
 	if body_mat == null:
 		return
 	body_mat.emission_enabled = true
-	body_mat.emission = Color(1, 0.2, 0.2)
-	body_mat.emission_energy_multiplier = 2.0
+	body_mat.emission = Color(1, 0.15, 0.1)
+	body_mat.emission_energy_multiplier = 2.5
 	var tw := create_tween()
-	tw.tween_property(body_mat, "emission_energy_multiplier", 0.0, 0.25)
+	tw.tween_property(body_mat, "emission_energy_multiplier", 0.0, 0.3)
 
 
 func _nearest_enemy(max_dist: float) -> Fighter:
@@ -587,12 +750,12 @@ func _bot_think(delta: float) -> void:
 	nade_cd -= delta
 	if think_cd > 0.0:
 		return
-	think_cd = 0.25
+	think_cd = 0.22
 	if move_input.length() > 0.1:
-		stuck_t += 0.25
+		stuck_t += 0.22
 		if stuck_t > 2.0:
 			stuck_t = 0.0
-			aim_yaw += 2.4
+			aim_yaw += 2.2
 			strafe_sign = -strafe_sign
 			wander_cd = 0.0
 	else:
@@ -601,7 +764,7 @@ func _bot_think(delta: float) -> void:
 	var live := true
 	if arena != null and arena.has_method("is_live"):
 		live = arena.is_live()
-	var target := _nearest_enemy(42.0)
+	var target := _nearest_enemy(45.0)
 
 	if personality == 2 and arena != null and arena.has_method("get_loot_point"):
 		var lp: Vector3 = arena.get_loot_point()
@@ -615,15 +778,13 @@ func _bot_think(delta: float) -> void:
 	if target != null and live:
 		var to: Vector3 = target.global_position - global_position
 		var dist := to.length()
-		var engage_r := 40.0
+		var engage_r := 38.0
 		if personality == 1:
-			engage_r = 30.0
-		if (target as Fighter).crouching:
-			engage_r *= 0.65
+			engage_r = 28.0
 		if dist < engage_r and _has_los(target):
 			_engage(target)
 			return
-		elif personality == 0 and dist < 60.0:
+		elif personality == 0 and dist < 55.0:
 			_go_to(Vector2(target.global_position.x, target.global_position.z))
 			fire_held = false
 			return
@@ -660,29 +821,29 @@ func _engage(target: Fighter) -> void:
 	var to: Vector3 = target.global_position - global_position
 	var dist := to.length()
 	aim_yaw = atan2(-to.x, -to.z)
-	aim_pitch = clamp(-(to.y - 0.4) / maxf(dist, 1.0), -0.5, 0.3)
+	aim_pitch = clamp(-(to.y - 0.3) / maxf(dist, 1.0), -0.45, 0.25)
 	var bm: Dictionary = Settings.bot_mult()
 	var fwd_amount := 0.0
 	if personality == 0:
-		fwd_amount = -0.8 if dist > 12.0 else 0.4
+		fwd_amount = -0.7 if dist > 12.0 else 0.35
 	else:
-		if dist > 20.0:
+		if dist > 18.0:
 			fwd_amount = -1.0
-		elif dist < 10.0:
+		elif dist < 9.0:
 			fwd_amount = 1.0
-	var side := sin(Time.get_ticks_msec() / 700.0 + float(get_instance_id() % 10)) * strafe_sign
+	var side := sin(Time.get_ticks_msec() / 650.0 + float(get_instance_id() % 10)) * strafe_sign
 	move_input = Vector2(side, fwd_amount)
 	var has_ammo := ammo_mag > 0 or ammo_reserve > 0
-	fire_held = dist < 30.0 and burst_cd <= 0.0 and has_ammo
+	fire_held = dist < 32.0 and burst_cd <= 0.0 and has_ammo
 	if not has_ammo:
 		if ammo_reserve > 0 and reloading <= 0.0:
 			start_reload()
 		move_input = Vector2(0, -1)
-	if randf() < 0.05:
-		burst_cd = randf_range(0.5, 1.2) * float(bm["burst"])
-		if randf() < 0.3:
+	if randf() < 0.06:
+		burst_cd = randf_range(0.4, 1.1) * float(bm["burst"])
+		if randf() < 0.35:
 			strafe_sign = -strafe_sign
 	if Settings.difficulty == 2 and nade_cd <= 0.0 and grenades > 0 and dist < 26.0 and dist > 8.0:
 		if not _has_los(target) or randf() < 0.3:
-			nade_cd = 10.0
+			nade_cd = 12.0
 			throw_grenade(target.global_position)

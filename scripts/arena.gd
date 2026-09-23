@@ -72,6 +72,7 @@ func _ready() -> void:
 	_build_town()
 	_build_towers()
 	_build_props()
+	_build_military_props()
 	_build_zone_visual()
 	_spawn_loot()
 	_spawn_fighters()
@@ -118,42 +119,80 @@ func _mat(c: Color, rough := 0.9) -> StandardMaterial3D:
 
 func _build_sky() -> void:
 	sun = DirectionalLight3D.new()
-	sun.rotation = Vector3(-0.9, 0.6, 0)
-	sun.light_energy = 1.1
-	sun.light_color = Color(1, 0.96, 0.9)
+	# Golden-hour military ops look (PUBG dusk vibe)
+	sun.rotation = Vector3(-0.75, 0.9, 0)
+	sun.light_energy = 1.35
+	sun.light_color = Color(1.0, 0.93, 0.82)
+	sun.shadow_enabled = true
+	sun.directional_shadow_max_distance = 90.0
+	sun.directional_shadow_split_1 = 0.12
+	sun.directional_shadow_split_2 = 0.3
 	add_child(sun)
+	# Subtle fill light so shadows aren't pure black
+	var fill := DirectionalLight3D.new()
+	fill.rotation = Vector3(-1.2, -0.5, 0)
+	fill.light_energy = 0.25
+	fill.light_color = Color(0.7, 0.8, 1.0)
+	fill.shadow_enabled = false
+	add_child(fill)
 	var env_node := WorldEnvironment.new()
 	env = Environment.new()
 	var sky := Sky.new()
 	sky_mat = ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.25, 0.5, 0.85)
-	sky_mat.sky_horizon_color = Color(0.7, 0.85, 0.95)
-	sky_mat.ground_bottom_color = Color(0.2, 0.25, 0.2)
-	sky_mat.ground_horizon_color = Color(0.7, 0.8, 0.85)
-	sky_mat.sun_angle_max = 12.0
+	sky_mat.sky_top_color = Color(0.18, 0.35, 0.62)
+	sky_mat.sky_horizon_color = Color(0.78, 0.72, 0.55)
+	sky_mat.ground_bottom_color = Color(0.18, 0.2, 0.16)
+	sky_mat.ground_horizon_color = Color(0.55, 0.5, 0.4)
+	sky_mat.sun_angle_max = 20.0
+	sky_mat.sun_curve = 0.12
 	sky.sky_material = sky_mat
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.7
+	env.ambient_light_energy = 0.85
+	env.ambient_light_sky_contribution = 0.7
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.05
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.7, 0.8, 0.9)
-	env.fog_density = 0.004
+	env.fog_light_color = Color(0.75, 0.72, 0.62)
+	env.fog_density = 0.0035
+	env.fog_sky_affect = 0.15
+	env.ssao_enabled = true
+	env.ssao_intensity = 1.4
+	env.ssao_radius = 1.5
 	env_node.environment = env
 	add_child(env_node)
-	var mtn_m := _mat(Color(0.3, 0.38, 0.3))
-	for i in 10:
-		var a := TAU * i / 10.0
+	# Ring mountains
+	var mtn_m := _mat(Color(0.28, 0.34, 0.26))
+	var mtn_far := _mat(Color(0.35, 0.38, 0.42))
+	for i in 12:
+		var a := TAU * i / 12.0
 		var mtn := MeshInstance3D.new()
 		var cone := CylinderMesh.new()
-		cone.top_radius = 2.0
-		cone.bottom_radius = randf_range(14.0, 22.0)
-		cone.height = randf_range(25.0, 40.0)
+		cone.top_radius = randf_range(1.0, 3.0)
+		cone.bottom_radius = randf_range(16.0, 28.0)
+		cone.height = randf_range(28.0, 48.0)
+		cone.radial_segments = 8
 		mtn.mesh = cone
-		mtn.material_override = mtn_m
-		mtn.position = Vector3(cos(a) * 105.0, 8.0, sin(a) * 105.0)
+		mtn.material_override = mtn_m if i % 2 == 0 else mtn_far
+		mtn.position = Vector3(cos(a) * 108.0, 6.0, sin(a) * 108.0)
 		add_child(mtn)
+	# Volumetric-ish cloud slabs
+	var cloud_m := StandardMaterial3D.new()
+	cloud_m.albedo_color = Color(1, 0.98, 0.95)
+	cloud_m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cloud_m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	cloud_m.albedo_color.a = 0.85
+	for i in 10:
+		var cl := MeshInstance3D.new()
+		var cs := SphereMesh.new()
+		cs.radius = 1.0
+		cs.height = 1.0
+		cl.mesh = cs
+		cl.material_override = cloud_m
+		cl.scale = Vector3(randf_range(10, 18), randf_range(1.2, 2.2), randf_range(5, 9))
+		cl.position = Vector3(randf_range(-95, 95), randf_range(50, 78), randf_range(-95, 95))
+		add_child(cl)
 
 
 func _build_ground() -> void:
@@ -168,7 +207,21 @@ func _build_ground() -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(140, 140)
 	gm.mesh = plane
-	gm.material_override = _mat(Color(0.25, 0.42, 0.2))
+	# Muted dirt-grass blend (PUBG Erangel vibe)
+	gm.material_override = _mat(Color(0.32, 0.38, 0.22), 0.95)
+	# Patch variation meshes
+	var patch_m := _mat(Color(0.4, 0.36, 0.24), 0.98)
+	var dark_m := _mat(Color(0.22, 0.3, 0.16), 0.95)
+	for i in 40:
+		var p := MeshInstance3D.new()
+		var pm2 := PlaneMesh.new()
+		var ps := randf_range(3, 9)
+		pm2.size = Vector2(ps, ps * randf_range(0.6, 1.4))
+		p.mesh = pm2
+		p.material_override = patch_m if i % 3 else dark_m
+		p.position = Vector3(randf_range(-62, 62), 0.02, randf_range(-62, 62))
+		p.rotation.y = randf() * TAU
+		add_child(p)
 	ground_body.add_child(gm)
 	add_child(ground_body)
 	var road_m := _mat(Color(0.16, 0.16, 0.17))
@@ -374,6 +427,119 @@ func _build_props() -> void:
 			_box(self, Vector3(0.25, 6, 0.25), Vector3(d, 3, off), pole_m)
 
 
+func _build_military_props() -> void:
+	# Sandbag bunkers (PUBG cover)
+	var sand := _mat(Color(0.55, 0.48, 0.32), 0.95)
+	var wood_c := _mat(Color(0.4, 0.28, 0.16), 0.85)
+	var metal_c := _mat(Color(0.35, 0.36, 0.38), 0.4, 0.6)
+	var crate_c := _mat(Color(0.42, 0.35, 0.2), 0.9)
+	var bunker_spots := [
+		Vector3(-8, 0, -26), Vector3(20, 0, 8), Vector3(-36, 0, 10),
+		Vector3(8, 0, 40), Vector3(-18, 0, -4),
+	]
+	for bp in bunker_spots:
+		# Stack of sandbags
+		for row in 3:
+			for i in 4:
+				var off := Vector3(-1.5 + i * 1.0, 0.35 + row * 0.35, 0)
+				var bag := MeshInstance3D.new()
+				var bm := BoxMesh.new()
+				bm.size = Vector3(0.9, 0.32, 0.5)
+				bag.mesh = bm
+				bag.material_override = sand
+				bag.position = bp + off
+				bag.rotation.y = randf_range(-0.1, 0.1)
+				add_child(bag)
+				if row == 0 and i == 0:
+					var c := StaticBody3D.new()
+					c.position = bp + Vector3(0, 0.7, 0)
+					var col := CollisionShape3D.new()
+					var sh := BoxShape3D.new()
+					sh.size = Vector3(4.2, 1.2, 0.7)
+					col.shape = sh
+					c.add_child(col)
+					add_child(c)
+		# Ammo crate beside
+		_box(self, Vector3(1.1, 0.7, 0.8), bp + Vector3(2.5, 0.35, 0.5), crate_c)
+		if randf() < 0.6:
+			spawn_pickup("ammo", bp + Vector3(2.5, 0.4, 0.5))
+	# Shipping containers / warehouse props
+	var cont_colors := [Color(0.55, 0.2, 0.15), Color(0.15, 0.35, 0.5), Color(0.25, 0.4, 0.2)]
+	var cont_spots := [
+		[Vector3(34, 0, -14), 0.0], [Vector3(-40, 0, -20), 1.57],
+		[Vector3(40, 0, 20), 0.4], [Vector3(-10, 0, 48), 0.0],
+	]
+	for i in cont_spots.size():
+		var pos: Vector3 = cont_spots[i][0]
+		var yaw: float = cont_spots[i][1]
+		var root := Node3D.new()
+		root.position = pos + Vector3(0, 1.3, 0)
+		root.rotation.y = yaw
+		add_child(root)
+		var cm := _mat(cont_colors[i % cont_colors.size()], 0.7, 0.25)
+		_box(root, Vector3(2.4, 2.6, 6.0), Vector3.ZERO, cm)
+		# Corrugated ribs
+		for r in 6:
+			_box(root, Vector3(2.5, 0.1, 0.15), Vector3(0, -1 + r * 0.4, -2.9), _mat(Color(0.2, 0.2, 0.2), 0.5, 0.5))
+		# Collision
+		var cb := StaticBody3D.new()
+		cb.position = pos + Vector3(0, 1.3, 0)
+		cb.rotation.y = yaw
+		var cc := CollisionShape3D.new()
+		var cs := BoxShape3D.new()
+		cs.size = Vector3(2.4, 2.6, 6.0)
+		cc.shape = cs
+		cb.add_child(cc)
+		add_child(cb)
+		houses.append({"pos": Vector2(pos.x, pos.z), "size": Vector2(2.4, 6.0)})
+	# Barrels
+	for i in 12:
+		var pos := Vector3(randf_range(-50, 50), 0, randf_range(-50, 50))
+		if abs(pos.x) < 8 and abs(pos.z) < 8:
+			continue
+		var barrel := MeshInstance3D.new()
+		var bc := CylinderMesh.new()
+		bc.top_radius = 0.4
+		bc.bottom_radius = 0.4
+		bc.height = 1.1
+		bc.radial_segments = 10
+		barrel.mesh = bc
+		var bcol := Color(0.5, 0.15, 0.1) if i % 2 == 0 else Color(0.15, 0.3, 0.45)
+		barrel.material_override = _mat(bcol, 0.55, 0.4)
+		barrel.position = pos + Vector3(0, 0.55, 0)
+		add_child(barrel)
+		# collision barrel
+		var bs := StaticBody3D.new()
+		bs.position = barrel.position
+		var bcc := CollisionShape3D.new()
+		var cyl := CylinderShape3D.new()
+		cyl.radius = 0.4
+		cyl.height = 1.1
+		bcc.shape = cyl
+		bs.add_child(bcc)
+		add_child(bs)
+	# Wire fence segments
+	var post_m := _mat(Color(0.3, 0.3, 0.32), 0.4, 0.7)
+	for seg in 8:
+		var ang := TAU * seg / 8.0 + 0.3
+		var c0 := Vector3(cos(ang) * 48, 0, sin(ang) * 48)
+		var c1 := Vector3(cos(ang + 0.35) * 48, 0, sin(ang + 0.35) * 48)
+		# posts
+		_box(self, Vector3(0.12, 1.6, 0.12), c0 + Vector3(0, 0.8, 0), post_m)
+		_box(self, Vector3(0.12, 1.6, 0.12), c1 + Vector3(0, 0.8, 0), post_m)
+		# rail
+		var mid := (c0 + c1) * 0.5
+		var len := c0.distance_to(c1)
+		var rail := MeshInstance3D.new()
+		var rm := BoxMesh.new()
+		rm.size = Vector3(0.06, 0.06, len)
+		rail.mesh = rm
+		rail.material_override = post_m
+		rail.position = mid + Vector3(0, 1.4, 0)
+		rail.look_at(c1 + Vector3(0, 1.4, 0))
+		add_child(rail)
+
+
 func _build_zone_visual() -> void:
 	var zone_shell := MeshInstance3D.new()
 	zone_shell.name = "ZoneShell"
@@ -429,17 +595,35 @@ func _spawn_fighters() -> void:
 		var ang := TAU * float(i) / float(total)
 		var r := 42.0
 		var pos := Vector3(cos(ang) * r, 1.0, sin(ang) * r)
+		# Set appearance BEFORE add_child so _ready builds correct look
 		if i == 0:
 			f.is_player = true
 			f.fname = "YOU"
-			f.body_color = Color(0.2, 0.6, 1.0)
+			f.body_color = Color(0.25, 0.3, 0.22)
+			f.camo_accent = Color(0.18, 0.22, 0.15)
+			f.skin_color = Color(0.8, 0.6, 0.46)
+			f.helmet = true
+			f.vest = true
 			player = f
 		else:
 			f.fname = str(names[i % names.size()]) + "-" + str(i)
-			f.body_color = Color.from_hsv(randf(), 0.65, 0.9)
+			var palettes := [
+				[Color(0.3, 0.32, 0.24), Color(0.2, 0.22, 0.16)],
+				[Color(0.35, 0.28, 0.18), Color(0.22, 0.18, 0.12)],
+				[Color(0.22, 0.28, 0.3), Color(0.15, 0.18, 0.2)],
+				[Color(0.4, 0.36, 0.28), Color(0.25, 0.22, 0.16)],
+				[Color(0.28, 0.24, 0.2), Color(0.18, 0.15, 0.12)],
+				[Color(0.32, 0.3, 0.22), Color(0.2, 0.2, 0.14)],
+			]
+			var pal: Array = palettes[i % palettes.size()]
+			f.body_color = pal[0]
+			f.camo_accent = pal[1]
+			f.skin_color = Color.from_hsv(0.07, 0.35, randf_range(0.55, 0.85))
 			f.personality = randi() % 3
 			f.grenades = 1
 			f.ammo_reserve = 60
+			f.helmet = randf() < 0.5
+			f.vest = randf() < 0.4
 			f.aim_yaw = randf() * TAU
 		f.position = pos
 		f.set_physics_process(false)
@@ -829,6 +1013,11 @@ func damage_number(pos: Vector3, amount: float, mine: bool) -> void:
 func toast(msg: String) -> void:
 	if hud != null:
 		hud.call("toast", msg)
+
+
+func hit_feedback() -> void:
+	if hud != null and hud.has_method("show_hit"):
+		hud.call("show_hit")
 
 
 func killfeed(killer: String, victim: String) -> void:

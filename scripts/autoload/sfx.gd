@@ -19,6 +19,7 @@ func _ready() -> void:
 	bank["hurt"] = _tone(175.0, 0.16, 0.7)
 	bank["reload"] = _tone(700.0, 0.09, 0.45)
 	bank["pickup"] = _tone(880.0, 0.12, 0.5)
+	bank["hit"] = _tone(1250.0, 0.06, 0.45)
 	bank["ui"] = _tone(600.0, 0.05, 0.4)
 	bank["warn"] = _tone(520.0, 0.28, 0.6)
 	bank["chute"] = _noise(0.85, 0.3)

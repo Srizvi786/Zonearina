@@ -374,18 +374,24 @@ func _build_end_panel() -> void:
 
 
 func _build_crosshair() -> void:
-	cross = _mk_label("+", 34)
+	# PUBG-style white cross with gap + center dot feel
+	cross = _mk_label("+", 38)
 	cross.set_anchors_preset(Control.PRESET_CENTER)
-	cross.position = Vector2(-17, -25)
-	cross.size = Vector2(34, 34)
+	cross.position = Vector2(-19, -27)
+	cross.size = Vector2(38, 38)
 	cross.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cross.add_theme_color_override("font_color", Color(1, 1, 1, 0.92))
+	cross.add_theme_constant_override("shadow_offset_x", 1)
+	cross.add_theme_constant_override("shadow_offset_y", 1)
 	add_child(cross)
-	hitmark = _mk_label("x", 44)
+	# Red hitmarker (PUBG "x")
+	hitmark = _mk_label("✕", 40)
 	hitmark.set_anchors_preset(Control.PRESET_CENTER)
-	hitmark.position = Vector2(-22, -32)
+	hitmark.position = Vector2(-22, -30)
 	hitmark.size = Vector2(44, 44)
 	hitmark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hitmark.add_theme_color_override("font_color", Color(1, 0.3, 0.2))
+	hitmark.add_theme_color_override("font_color", Color(1, 0.25, 0.15, 0.95))
+	hitmark.add_theme_font_size_override("font_size", 40)
 	hitmark.visible = false
 	add_child(hitmark)
 
@@ -475,8 +481,13 @@ func feed(killer: String, victim: String) -> void:
 	tw.tween_property(l, "modulate:a", 0.0, 1.0)
 	tw.tween_callback(l.queue_free)
 	if player != null and killer == player.fname:
-		hitmark.visible = true
-		hit_t = 0.4
+		show_hit()
+
+
+func show_hit() -> void:
+	hitmark.visible = true
+	hit_t = 0.35
+	Sfx.play("hit")
 
 
 func show_end(won: bool, rank: int, kills: int) -> void:
@@ -495,7 +506,7 @@ func show_end(won: bool, rank: int, kills: int) -> void:
 
 func _on_fire_down() -> void:
 	if player != null and player.alive:
-		player.fire_held = true
+		player.set_touch_fire(true)
 
 
 func _on_fire_up() -> void:
