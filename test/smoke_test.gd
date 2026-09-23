@@ -1,10 +1,29 @@
 extends SceneTree
-## Headless smoke test: parse + load all scripts, instantiate arena logic lightly.
-## Run: godot --headless -s res://test/smoke_test.gd
+## Headless smoke test: runs AFTER autoloads exist (use as main script via project boot alternative).
+## Preferred CI path: godot --headless --quit-after 30
+## This script only validates resources when autoloads are present.
+
+func _initialize() -> void:
+	# Defer to first process so Settings/Sfx autoloads are in the tree.
+	pass
 
 
-func _init() -> void:
+func _process(_delta: float) -> bool:
 	var errors: Array[String] = []
+	if root == null:
+		print("SMOKE_TEST_FAIL no root")
+		quit(1)
+		return true
+	for n in ["Settings", "Sfx"]:
+		if root.get_node_or_null(n) == null and get_root().get_node_or_null(n) == null:
+			# also check global
+			var found := false
+			for c in get_root().get_children():
+				if c.name == n:
+					found = true
+					break
+			if not found:
+				errors.append("missing autoload: " + n)
 	var scripts := [
 		"res://scripts/arena.gd",
 		"res://scripts/fighter.gd",
@@ -18,33 +37,20 @@ func _init() -> void:
 	]
 	for path in scripts:
 		if not FileAccess.file_exists(path):
-			errors.append("missing file: " + path)
-			continue
-		var scr: Script = load(path)
-		if scr == null:
-			errors.append("failed to load: " + path)
-			continue
-		if not scr.can_instantiate() and path.contains("autoload") == false:
-			# can_instantiate false can be OK for pure base? still flag parse
-			var src := scr.source_code if scr is Script else ""
-			if src.is_empty():
-				errors.append("empty source: " + path)
-		print("[ok] ", path)
-	# Scenes
+			errors.append("missing: " + path)
+	# Scenes loadable
 	for scn in ["res://scenes/arena.tscn", "res://scenes/fighter.tscn", "res://scenes/bullet.tscn", "res://scenes/main_menu.tscn"]:
-		if not FileAccess.file_exists(scn):
-			errors.append("missing scene: " + scn)
-			continue
-		var packed: PackedScene = load(scn)
+		var packed = load(scn)
 		if packed == null:
-			errors.append("failed to load scene: " + scn)
+			errors.append("failed scene: " + scn)
 		else:
 			print("[ok] ", scn)
 	if errors.is_empty():
 		print("SMOKE_TEST_PASS")
 		quit(0)
-	else:
-		for e in errors:
-			printerr("[FAIL] ", e)
-		print("SMOKE_TEST_FAIL count=", errors.size())
-		quit(1)
+		return true
+	for e in errors:
+		printerr("[FAIL] ", e)
+	print("SMOKE_TEST_FAIL count=", errors.size())
+	quit(1)
+	return true

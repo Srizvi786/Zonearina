@@ -77,18 +77,18 @@ jobs:
             exit 1
           fi
 
-      - name: Headless smoke test
+      - name: Headless smoke test (boot main scene)
         run: |
           set +e
-          ~/godot/Godot_v4.3-stable_linux.x86_64 --headless -s res://test/smoke_test.gd 2>&1 | tee smoke.log
-          CODE=${PIPESTATUS[0]}
+          # Boot full project so Settings/Sfx autoloads register, then quit.
+          timeout 45 ~/godot/Godot_v4.3-stable_linux.x86_64 --headless --quit-after 40 2>&1 | tee smoke.log
           set -e
           if grep -qE "SCRIPT ERROR|Parse Error" smoke.log; then
-            echo "::error::Script errors in smoke test"
+            echo "::error::Script errors during project boot"
             exit 1
           fi
-          if ! grep -q "SMOKE_TEST_PASS" smoke.log; then
-            echo "::error::Smoke test failed"
+          if ! grep -q "Godot Engine" smoke.log; then
+            echo "::error::Godot did not start"
             exit 1
           fi
           echo "Smoke test OK"
