@@ -915,7 +915,7 @@ func get_bullet():
 	for b in bullet_pool:
 		if not b.active:
 			return b
-	if bullet_pool.size() >= 48:
+	if bullet_pool.size() >= 32:
 		return null
 	var nb = Fighter.BULLET_SCENE.instantiate()
 	add_child(nb)

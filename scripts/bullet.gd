@@ -45,7 +45,7 @@ func setup(d: Vector3, dmg: float, s) -> void:
 	dir = d.normalized()
 	damage = dmg
 	shooter = s
-	life = 2.0
+	life = 0.55
 	active = true
 	visible = true
 	if dir.length() > 0.01:

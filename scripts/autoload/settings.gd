@@ -50,10 +50,10 @@ func record_match(kills: int, rank: int, won: bool) -> void:
 func bot_mult() -> Dictionary:
 	match difficulty:
 		0:
-			return {"dmg": 0.55, "err": 2.2, "burst": 1.6}
+			return {"dmg": 0.5, "err": 2.6, "burst": 1.8}
 		2:
-			return {"dmg": 1.35, "err": 0.55, "burst": 0.7}
-	return {"dmg": 1.0, "err": 1.0, "burst": 1.0}
+			return {"dmg": 1.2, "err": 0.7, "burst": 0.75}
+	return {"dmg": 0.9, "err": 1.4, "burst": 1.2}
 
 
 func diff_name() -> String:

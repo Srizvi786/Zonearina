@@ -11,9 +11,9 @@ const MAX_HP := 100.0
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 
 const GUNS := {
-	"rifle": {"dmg": 14.0, "interval": 0.14, "mag": 30, "auto": true, "spread": 0.018, "sound": "rifle", "range": 120.0},
-	"smg": {"dmg": 9.0, "interval": 0.085, "mag": 40, "auto": true, "spread": 0.045, "sound": "smg", "range": 70.0},
-	"sniper": {"dmg": 55.0, "interval": 1.15, "mag": 5, "auto": false, "spread": 0.0, "sound": "sniper", "range": 200.0},
+	"rifle": {"dmg": 14.0, "interval": 0.16, "mag": 30, "auto": true, "spread": 0.02, "sound": "rifle", "range": 110.0},
+	"smg": {"dmg": 9.0, "interval": 0.11, "mag": 40, "auto": true, "spread": 0.05, "sound": "smg", "range": 65.0},
+	"sniper": {"dmg": 55.0, "interval": 1.2, "mag": 5, "auto": false, "spread": 0.0, "sound": "sniper", "range": 200.0},
 }
 
 var is_player := false
@@ -239,21 +239,23 @@ func _build_soldier() -> void:
 		else:
 			leg_r = hip
 
-	# --- Weapon in hands (visible rifle) ---
+	# --- Weapon held in both hands (visible rifle) ---
 	gun_root = Node3D.new()
-	gun_root.position = Vector3(0.2, 1.22, -0.2)
+	# Aligned with aiming hand pose (hands ~y1.1 z-0.75 when arms forward)
+	gun_root.position = Vector3(0.0, 1.12, -0.55)
+	gun_root.rotation.x = 0.08
+	gun_root.scale = Vector3(1.15, 1.15, 1.15)
 	visual.add_child(gun_root)
-	_build_weapon_mesh(gun_root)
 
 	muzzle = Marker3D.new()
-	muzzle.position = Vector3(0.0, 0.05, -0.95)
+	muzzle.position = Vector3(0.0, 0.05, -1.05)
 	gun_root.add_child(muzzle)
 
 	# Muzzle flash
 	flash_m = MeshInstance3D.new()
 	var fs := SphereMesh.new()
-	fs.radius = 0.18
-	fs.height = 0.35
+	fs.radius = 0.2
+	fs.height = 0.4
 	flash_m.mesh = fs
 	var fm := StandardMaterial3D.new()
 	fm.albedo_color = Color(1, 0.85, 0.35)
@@ -262,9 +264,10 @@ func _build_soldier() -> void:
 	fm.emission_energy_multiplier = 6.0
 	fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	flash_m.material_override = fm
-	flash_m.position = Vector3(0, 0.05, -1.0)
+	flash_m.position = Vector3(0, 0.05, -1.1)
 	flash_m.visible = false
 	gun_root.add_child(flash_m)
+	_build_weapon_mesh(gun_root)
 
 	# Collision capsule (human height ~1.75)
 	col = CollisionShape3D.new()
@@ -289,38 +292,42 @@ func _build_soldier() -> void:
 
 
 func _build_weapon_mesh(root: Node3D) -> void:
-	var gun_c := _mat(Color(0.1, 0.1, 0.11), 0.45, 0.55)
-	var metal := _mat(Color(0.2, 0.2, 0.22), 0.3, 0.75)
-	var wood := _mat(Color(0.3, 0.18, 0.1), 0.7)
-	# Clear old
+	# Brighter metals so gun reads clearly on mobile
+	var gun_c := _mat(Color(0.18, 0.18, 0.2), 0.4, 0.5)
+	var metal := _mat(Color(0.45, 0.45, 0.5), 0.3, 0.85)
+	var wood := _mat(Color(0.4, 0.26, 0.14), 0.65)
+	var black := _mat(Color(0.08, 0.08, 0.09), 0.5, 0.4)
+	# Clear old mesh parts only (keep muzzle/flash markers)
 	for c in root.get_children():
 		if c is MeshInstance3D or c is Marker3D:
 			if c != muzzle and c != flash_m:
 				c.queue_free()
 	match gun:
 		"sniper":
-			_box(root, Vector3(0.07, 0.1, 1.3), Vector3(0, 0.05, -0.35), gun_c)
-			_box(root, Vector3(0.06, 0.08, 0.35), Vector3(0, 0.05, 0.35), wood)
-			_cyl(root, 0.025, 0.025, 0.55, Vector3(0, 0.06, -1.0), metal, Vector3(PI / 2, 0, 0))
-			# Scope
-			_cyl(root, 0.04, 0.04, 0.28, Vector3(0, 0.16, -0.15), metal, Vector3(PI / 2, 0, 0))
-			_box(root, Vector3(0.04, 0.08, 0.08), Vector3(0, 0.1, -0.15), metal)
+			_box(root, Vector3(0.09, 0.12, 1.45), Vector3(0, 0.05, -0.4), gun_c)
+			_box(root, Vector3(0.08, 0.1, 0.4), Vector3(0, 0.05, 0.4), wood)
+			_cyl(root, 0.03, 0.03, 0.7, Vector3(0, 0.06, -1.15), metal, Vector3(PI / 2, 0, 0))
+			_cyl(root, 0.05, 0.05, 0.32, Vector3(0, 0.18, -0.15), black, Vector3(PI / 2, 0, 0))
+			_box(root, Vector3(0.05, 0.09, 0.1), Vector3(0, 0.11, -0.15), metal)
 		"smg":
-			_box(root, Vector3(0.08, 0.12, 0.7), Vector3(0, 0.05, -0.2), gun_c)
-			_box(root, Vector3(0.07, 0.1, 0.2), Vector3(0, 0.02, 0.25), gun_c)
-			_cyl(root, 0.02, 0.02, 0.25, Vector3(0, 0.06, -0.55), metal, Vector3(PI / 2, 0, 0))
-			_box(root, Vector3(0.05, 0.14, 0.08), Vector3(0, -0.06, -0.05), metal)
+			_box(root, Vector3(0.1, 0.14, 0.78), Vector3(0, 0.05, -0.22), gun_c)
+			_box(root, Vector3(0.09, 0.12, 0.24), Vector3(0, 0.02, 0.28), black)
+			_cyl(root, 0.025, 0.025, 0.3, Vector3(0, 0.06, -0.62), metal, Vector3(PI / 2, 0, 0))
+			_box(root, Vector3(0.06, 0.16, 0.1), Vector3(0, -0.08, -0.05), metal)
+			_box(root, Vector3(0.05, 0.08, 0.35), Vector3(0, 0.0, 0.35), black)
 		_:
-			# Assault rifle (AK/M4 hybrid)
-			_box(root, Vector3(0.08, 0.11, 0.85), Vector3(0, 0.05, -0.25), gun_c)
-			_box(root, Vector3(0.07, 0.1, 0.28), Vector3(0, 0.04, 0.3), wood)
-			_cyl(root, 0.022, 0.022, 0.4, Vector3(0, 0.06, -0.75), metal, Vector3(PI / 2, 0, 0))
-			# Magazine (curved hint)
-			_box(root, Vector3(0.05, 0.18, 0.08), Vector3(0, -0.08, -0.1), metal)
-			# Front sight
-			_box(root, Vector3(0.03, 0.08, 0.03), Vector3(0, 0.14, -0.55), metal)
-			# Carry handle rear sight
-			_box(root, Vector3(0.04, 0.05, 0.1), Vector3(0, 0.13, 0.05), metal)
+			# Assault rifle - larger + lighter so it's clearly in hands
+			_box(root, Vector3(0.1, 0.13, 1.0), Vector3(0, 0.05, -0.3), gun_c)
+			_box(root, Vector3(0.09, 0.12, 0.34), Vector3(0, 0.04, 0.38), wood)
+			_cyl(root, 0.028, 0.028, 0.5, Vector3(0, 0.06, -0.9), metal, Vector3(PI / 2, 0, 0))
+			# Magazine
+			_box(root, Vector3(0.07, 0.22, 0.1), Vector3(0, -0.1, -0.1), metal)
+			# Front + rear sights
+			_box(root, Vector3(0.04, 0.1, 0.04), Vector3(0, 0.16, -0.65), metal)
+			_box(root, Vector3(0.05, 0.06, 0.12), Vector3(0, 0.15, 0.05), metal)
+			# Handguard ribs
+			for i in 3:
+				_box(root, Vector3(0.11, 0.03, 0.04), Vector3(0, 0.1, -0.45 - i * 0.1), black)
 
 
 func refresh_weapon_visual() -> void:
@@ -414,17 +421,20 @@ func _animate(delta: float, speed01: float) -> void:
 	if speed01 > 0.3 and is_on_floor():
 		walk_phase += delta * (5.5 + speed01 * 6.5)
 		var s := sin(walk_phase) * (0.5 if not aiming else 0.22)
-		arm_l.rotation.x = s * 0.7 - (0.9 if aiming else 0.0)
-		arm_r.rotation.x = -s * 0.3 - (1.1 if aiming else 0.0)
+		arm_l.rotation.x = s * 0.7 - (0.95 if aiming else 0.0)
+		arm_r.rotation.x = -s * 0.3 - (1.15 if aiming else 0.0)
+		if aiming:
+			arm_l.rotation.z = 0.32
+			arm_r.rotation.z = -0.18
 		leg_l.rotation.x = -s
 		leg_r.rotation.x = s
 		visual.position.y = abs(sin(walk_phase)) * 0.04
 	elif aiming:
-		# Arms forward holding weapon
-		arm_l.rotation.x = -1.2
-		arm_l.rotation.z = 0.25
-		arm_r.rotation.x = -1.35
-		arm_r.rotation.z = -0.15
+		# Arms forward holding weapon (matches gun_root at z-0.55)
+		arm_l.rotation.x = -1.05
+		arm_l.rotation.z = 0.35
+		arm_r.rotation.x = -1.25
+		arm_r.rotation.z = -0.2
 		leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.0, delta * 8.0)
 		leg_r.rotation.x = lerpf(leg_r.rotation.x, 0.0, delta * 8.0)
 	else:
@@ -458,13 +468,13 @@ func _player_input(delta: float) -> void:
 		try_jump()
 	if Input.is_action_just_pressed("reload"):
 		start_reload()
-	# Mouse / keyboard fire - always sync
-	if Input.is_action_pressed("fire") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+	# Only keyboard fire action + explicit touch flag.
+	# Do NOT use raw MOUSE_BUTTON_LEFT — emulate_mouse_from_touch makes
+	# any screen tap look like left-click and fire gets stuck.
+	if Input.is_action_pressed("fire") and not _touch_fire_held:
 		fire_held = true
-	elif fire_held and not _touch_fire_held:
-		# Only release if not held by touch button
-		if not Input.is_action_pressed("fire"):
-			fire_held = false
+	elif not Input.is_action_pressed("fire") and not _touch_fire_held:
+		fire_held = false
 
 
 var _touch_fire_held := false
@@ -472,12 +482,12 @@ var _touch_fire_held := false
 
 func set_touch_fire(v: bool) -> void:
 	_touch_fire_held = v
-	fire_held = v or Input.is_action_pressed("fire") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	fire_held = v or Input.is_action_pressed("fire")
 
 
 func release_trigger() -> void:
 	_touch_fire_held = false
-	fire_held = Input.is_action_pressed("fire") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	fire_held = Input.is_action_pressed("fire")
 
 
 func try_jump() -> void:
@@ -778,13 +788,13 @@ func _bot_think(delta: float) -> void:
 	if target != null and live:
 		var to: Vector3 = target.global_position - global_position
 		var dist := to.length()
-		var engage_r := 38.0
+		var engage_r := 30.0
 		if personality == 1:
-			engage_r = 28.0
+			engage_r = 22.0
 		if dist < engage_r and _has_los(target):
 			_engage(target)
 			return
-		elif personality == 0 and dist < 55.0:
+		elif personality == 0 and dist < 50.0:
 			_go_to(Vector2(target.global_position.x, target.global_position.z))
 			fire_held = false
 			return
@@ -834,13 +844,17 @@ func _engage(target: Fighter) -> void:
 	var side := sin(Time.get_ticks_msec() / 650.0 + float(get_instance_id() % 10)) * strafe_sign
 	move_input = Vector2(side, fwd_amount)
 	var has_ammo := ammo_mag > 0 or ammo_reserve > 0
-	fire_held = dist < 32.0 and burst_cd <= 0.0 and has_ammo
+	# Short spray then pause (burst_cd) so player can hide
+	var can_spray := dist < 26.0 and burst_cd <= 0.0 and has_ammo and reloading <= 0.0
+	fire_held = can_spray
 	if not has_ammo:
 		if ammo_reserve > 0 and reloading <= 0.0:
 			start_reload()
 		move_input = Vector2(0, -1)
-	if randf() < 0.06:
-		burst_cd = randf_range(0.4, 1.1) * float(bm["burst"])
+		fire_held = false
+	# Start a burst pause more often so bots don't laser forever
+	if burst_cd <= 0.0 and randf() < 0.35:
+		burst_cd = randf_range(0.7, 1.6) * float(bm["burst"])
 		if randf() < 0.35:
 			strafe_sign = -strafe_sign
 	if Settings.difficulty == 2 and nade_cd <= 0.0 and grenades > 0 and dist < 26.0 and dist > 8.0:
